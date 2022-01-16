@@ -17,6 +17,7 @@ extension TreatmentEntry {
 		return NSFetchRequest<TreatmentEntry>(entityName: "TreatmentEntry")
 	}
 	
+    /// if TreatmentEntry is not yet uploaded to NS, then the id will get this value
 	public static let EmptyId: String = ""
 
 	/// Date represents the date of the treatment, not the date of creation.

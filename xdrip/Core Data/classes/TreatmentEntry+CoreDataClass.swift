@@ -48,6 +48,7 @@ import CoreData
 		}
 	}
 	
+    /// define TreatmentType based on string received from NightScout
 	public static func fromNightscoutString(_ string: String) -> TreatmentType? {
 		switch string {
 		case "Correction Bolus":
@@ -73,11 +74,13 @@ import CoreData
 /// .uploaded tells if entry has been uploaded for Nighscout or not.
 public class TreatmentEntry: NSManagedObject, Comparable {
 
+    /// initializer with id default empty, uploaded default false
     convenience init(date: Date, value: Double, treatmentType: TreatmentType, nsManagedObjectContext:NSManagedObjectContext) {
 		// Id defaults to Empty
 		self.init(id: TreatmentEntry.EmptyId, date: date, value: value, treatmentType: treatmentType, uploaded: false, nsManagedObjectContext: nsManagedObjectContext)
 	}
 	
+    /// if id = TreatmentEntry.EmptyId then uploaded will get default value false
 	convenience init(id: String, date: Date, value: Double, treatmentType: TreatmentType, nsManagedObjectContext:NSManagedObjectContext) {
 		
 		let uploaded = id != TreatmentEntry.EmptyId
@@ -106,14 +109,20 @@ public class TreatmentEntry: NSManagedObject, Comparable {
 		return self.value.stringWithoutTrailingZeroes + " " + self.treatmentType.unit()
 	}
 	
-	/// Returns the dictionary representation required for nighscout post request.
+	/// Returns the dictionary representation required for creating a new treatment @ NighScout using POST or updating an existing treatment @ NightScout using PUT
 	public func dictionaryRepresentationForNightScoutUpload() -> [String: Any] {
+        
 		// Universal fields.
 		var dict: [String: Any] = [
 			"enteredBy": "xDrip4iOS",
 			"eventTime": self.date.ISOStringFromDate(),
 		]
 		
+        // if id exists, then add it also
+        if id != TreatmentEntry.EmptyId {
+            dict["_id"] = id
+        }
+        
 		// Checks the treatmentType and add specific information.
 		switch self.treatmentType {
 		case .Insulin:

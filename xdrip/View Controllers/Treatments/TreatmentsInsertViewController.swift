@@ -24,7 +24,7 @@ class TreatmentsInsertViewController : UIViewController {
 	// MARK: - private properties
     
 	/// reference to coreDataManager
-	private var coreDataManager:CoreDataManager?
+	private var coreDataManager:CoreDataManager!
 	
 	/// handler to be executed when user clicks okButton
 	private var completionHandler:(() -> Void)?
@@ -98,10 +98,6 @@ class TreatmentsInsertViewController : UIViewController {
 	
 	@IBAction func doneButtonTapped(_ sender: UIBarButtonItem) {
         
-		guard let coreDataManager = coreDataManager, let completionHandler = completionHandler else {
-			return
-		}
-		
 		var treatments: [TreatmentEntry] = []
         
         // if treatMentEntryToUpdate not nil, then assign new value or delete it
@@ -112,16 +108,25 @@ class TreatmentsInsertViewController : UIViewController {
             // checks if text in textfield exists, has value > 0.
             // if yes, assigns value to treatMentEntryToUpdate.value
             // if no deletes treatMentEntryToUpdate
-            // sets text in textField to "0" to avoid that new treatmentEntry is created
             let updateFunction = { (textField: UITextField) in
                 
                 if let text = textField.text, let value = Double(text), value > 0 {
+
                     treatMentEntryToUpdate.value = value
+
+                    // sets text in textField to "0" to avoid that new treatmentEntry is created
                     textField.text = "0"
+
                 } else {
-                    coreDataManager.mainManagedObjectContext.delete(treatMentEntryToUpdate)
+                    
+                    // text is nil or "0", delete the entry
+                    self.coreDataManager.mainManagedObjectContext.delete(treatMentEntryToUpdate)
                     self.treatMentEntryToUpdate = nil
                 }
+                
+                // set uploaded to false so that the entry is synced with NightScout
+                treatMentEntryToUpdate.uploaded = false
+                
             }
 
             switch treatMentEntryToUpdate.treatmentType {
@@ -157,8 +162,14 @@ class TreatmentsInsertViewController : UIViewController {
         // permenant save in coredata
         coreDataManager.saveChanges()
         
-        // call
-		completionHandler()
+        // trigger nightscoutsync
+        UserDefaults.standard.nightScoutSyncTreatmentsRequired = true
+
+        // call completionHandler
+        if let completionHandler = completionHandler {
+            completionHandler()
+        }
+		
 		
 		// Pops the current view (this)
 		self.navigationController?.popViewController(animated: true)
@@ -170,7 +181,7 @@ class TreatmentsInsertViewController : UIViewController {
 	
     /// - parameters:
     ///     - treatMentEntryToUpdate
-    public func configure(treatMentEntryToUpdate: TreatmentEntry?, coreDataManager: CoreDataManager?, completionHandler: @escaping (() -> Void)) {
+    public func configure(treatMentEntryToUpdate: TreatmentEntry?, coreDataManager: CoreDataManager, completionHandler: @escaping (() -> Void)) {
         
 		// initalize private properties
 		self.coreDataManager = coreDataManager
