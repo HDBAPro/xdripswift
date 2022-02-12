@@ -83,9 +83,9 @@ public struct TreatmentNSResponse {
         
 	}
 	
-	/// Converts self (TreatmentNSResponse) to TreatmentEntry.
+	/// Converts self (TreatmentNSResponse) to TreatmentEntry and creates a TreatmentEntry
     ///
-	/// Be extra carefull when creating new TreatmentEntry, will create the new entry in CoreData
+	/// Be extra carefull when creating new TreatmentEntry, will create the new entry in CoreData but does not save in CoreData
 	public func asNewTreatmentEntry(nsManagedObjectContext: NSManagedObjectContext) -> TreatmentEntry? {
         
 		return TreatmentEntry(id: id, date: createdAt, value: value, treatmentType: eventType, nsManagedObjectContext: nsManagedObjectContext)

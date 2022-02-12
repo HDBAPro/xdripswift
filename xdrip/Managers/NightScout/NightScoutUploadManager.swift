@@ -187,53 +187,55 @@ public class NightScoutUploadManager: NSObject {
 
             trace("    result = %{public}@", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, nightScoutResult.description())
 
+            // possibly not running on main thread here
             DispatchQueue.main.async {
 
                 // *********************************************************************
-                // download treatments from nightscout
-                // filter again on treatments that are in status not uploaded and have no id yet (ie never uploaded to NS before), because the goal is to find any missing id's if applicable
+                // update treatments to nightscout
+                // now filter on treatments that are in status not uploaded and have an id. These are treatments are already uploaded but need update @ NightScout
                 // *********************************************************************
-                trace("calling getLatestTreatmentsNSResponses", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
                 
-                self.getLatestTreatmentsNSResponses(treatmentsToUpload: treatmentsToUploadOrUpdate.filter { treatment in return treatment.id == TreatmentEntry.EmptyId}) { nightScoutResult in
+                // create new array of treatmentEntries to update - they will be processed one by one, a processed element is removed
+                var treatmentsToUpdate = treatmentsToUploadOrUpdate.filter { treatment in return treatment.id != TreatmentEntry.EmptyId && !treatment.uploaded }
+                
+                trace("there are %{public}@ treatments to be updated", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, treatmentsToUpdate.count.description)
+                
+                // function to update the treatments one by one, it will call itself after having updated an entry, to process the next entry or to proceed with the next step in the sync process
+                func updateTreatment() {
                     
-                    trace("    result = %{public}@", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, nightScoutResult.description())
-                    
-                    // create new array of treatmentEntries to update - they will be processed one by one, a processed element is removed
-                    var treatmentsToUpdate = treatmentsToUploadOrUpdate.filter { treatment in return treatment.id != TreatmentEntry.EmptyId && !treatment.uploaded }
-                    
-                    trace("there are %{public}@ treatments to be updated", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, treatmentsToUpdate.count.description)
-                    
-                    DispatchQueue.main.async {
+                    if let treatmentToUpdate = treatmentsToUpdate.first {
                         
-                        // *********************************************************************
-                        // update treatments to nightscout
-                        // now filter on treatments that are in status not uploaded and have an id. These are treatments are already uploaded but need update @ NightScout
-                        // *********************************************************************
+                        // remove the treatment from the array, so it doesn't get processed again next run
+                        treatmentsToUpdate.removeFirst()
                         
-                        // function to update the treatments one by one, it will call it self after having updated an entry, to process the next entry or to proceed with the next step in the sync process
-                        func updateTreatment() {
+                        trace("calling updateTreatmentToNightScout", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
+                        
+                        self.updateTreatmentToNightScout(treatmentToUpdate: treatmentToUpdate, completionHandler: { nightScoutResult in
                             
-                            if let treatmentToUpdate = treatmentsToUpdate.first {
-                                
-                                // remove the treatment from the array, so it doesn't get processed again next run
-                                treatmentsToUpdate.removeFirst()
-                                
-                                trace("calling updateTreatmentToNightScout", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
-                                
-                                self.updateTreatmentToNightScout(treatmentToUpdate: treatmentToUpdate, completionHandler: { nightScoutResult in
-                                    
-                                    trace("    result = %{public}@", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, nightScoutResult.description())
-                                    
-                                    // by calling updateTreatment(), the next treatment to update will be processed, or go to the next step in the sync process
-                                    // better to start in main thread
-                                    DispatchQueue.main.async {
-                                        updateTreatment()
-                                    }
-                                    
-                                })
-                                
-                            } else {
+                            trace("    result = %{public}@", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, nightScoutResult.description())
+                            
+                            // by calling updateTreatment(), the next treatment to update will be processed, or go to the next step in the sync process
+                            // better to start in main thread
+                            DispatchQueue.main.async {
+                                updateTreatment()
+                            }
+                            
+                        })
+                        
+                    } else {
+                        
+                        
+                        // *********************************************************************
+                        // download treatments from nightscout
+                        // filter again on treatments that are in status not uploaded and have no id yet (ie never uploaded to NS before), because the goal is to find any missing id's if applicable
+                        // *********************************************************************
+                        trace("calling getLatestTreatmentsNSResponses", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
+                        
+                        self.getLatestTreatmentsNSResponses(treatmentsToUpload: treatmentsToUploadOrUpdate.filter { treatment in return treatment.id == TreatmentEntry.EmptyId}) { nightScoutResult in
+                            
+                            trace("    result = %{public}@", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, nightScoutResult.description())
+                            
+                            DispatchQueue.main.async {
                                 
                                 // ***********************
                                 // next step in the sync process
@@ -250,15 +252,15 @@ public class NightScoutUploadManager: NSObject {
                             }
                             
                         }
-                        
-                        // call the function update Treatment a first time
-                        // it will call itself per Treatment
-                        updateTreatment()
-                        
+
                     }
                     
                 }
                 
+                // call the function update Treatment a first time
+                // it will call itself per Treatment to be updated at NightScout, or, if there aren't any to update, it will continue with the next step
+                updateTreatment()
+                                
             }
             
         }
@@ -504,7 +506,7 @@ public class NightScoutUploadManager: NSObject {
                 
                 self.coreDataManager.mainManagedObjectContext.performAndWait {
 
-                    if result == .success {
+                    if result.successFull() {
                         treatmentToUpdate.uploaded = true
                         self.coreDataManager.saveChanges()
                     }
@@ -517,7 +519,7 @@ public class NightScoutUploadManager: NSObject {
         
     }
     
-    /// Upload treatments to nightscout, receives the JSON response with the asigned IDS and sets the ids in Core Data.
+    /// Upload treatments to nightscout, receives the JSON response with the asigned id's and sets the id's in Coredata.
 	/// - parameters:
     ///     - completionHandler : to be called after completion, takes NightScoutResult as argument
     ///     - treatmentsToUpload : treaments to upload
@@ -529,7 +531,7 @@ public class NightScoutUploadManager: NSObject {
             
 			trace("    no treatments to upload", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
             
-            completionHandler(.success)
+            completionHandler(NightScoutResult.success(.withoutlocalchanges))
             
 			return
             
@@ -544,7 +546,7 @@ public class NightScoutUploadManager: NSObject {
         uploadDataAndGetResponse(dataToUpload: treatmentsDictionaryRepresentation, httpMethod: nil, path: nightScoutTreatmentPath) { (responseData: Data?, result: NightScoutResult) in
 			
             // if result of uploadDataAndGetResponse is not success then just return the result without further processing
-            guard result == .success else {
+            guard result.successFull() else {
                 completionHandler(result)
                 return
             }
@@ -555,7 +557,7 @@ public class NightScoutUploadManager: NSObject {
                     
                     trace("    responseData is nil", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
                     
-                    completionHandler(.failed)
+                    completionHandler(NightScoutResult.failed)
                     
                     return
                     
@@ -573,7 +575,7 @@ public class NightScoutUploadManager: NSObject {
 
 						self.coreDataManager.saveChanges()
                         
-                        completionHandler(.success)
+                        completionHandler(NightScoutResult.success(.withoutlocalchanges))
                         
 					}
 					
@@ -687,7 +689,7 @@ public class NightScoutUploadManager: NSObject {
                         // if there's nothing in treatmentNSResponses, then no need for further processing
                         guard treatmentNSResponses.count > 0 else {
                             
-                            completionHandler(.success)
+                            completionHandler(NightScoutResult.success(.withoutlocalchanges))
                             
                             return
                             
@@ -695,7 +697,7 @@ public class NightScoutUploadManager: NSObject {
                         
                         // newTreatmentsIfRequired will iterate through downloaded treatments and if any in it is not yet known then create an instance of TreatmentEntry for each new one
                         // amountOfNewTreatments is the amount of new TreatmentEntries, just for tracing
-                        let amountOfNewTreatments  = self.newTreatmentsIfRequired(treatmentNSResponses: treatmentNSResponses).count
+                        let amountOfNewTreatments  = self.newTreatmentsIfRequired(treatmentNSResponses: treatmentNSResponses)
                         
                         trace("    %{public}@ new treatmentEntries created", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, amountOfNewTreatments.description)
                         
@@ -706,7 +708,8 @@ public class NightScoutUploadManager: NSObject {
 
                         self.coreDataManager.saveChanges()
                         
-                        completionHandler(.success)
+                        // call completion handler with success, if amount and/or amountOfNewTreatments > 0 then it's success withlocalchanges
+                        completionHandler(amount + amountOfNewTreatments > 0 ? NightScoutResult.success(.withlocalchanges) : NightScoutResult.success(.withoutlocalchanges))
                         
                     }
 
@@ -878,9 +881,9 @@ public class NightScoutUploadManager: NSObject {
                     }
                     
                     // Create upload Task
-                    let task = URLSession.shared.uploadTask(with: request, from: dataToUploadAsJSON, completionHandler: { (data, response, error) -> Void in
+                    let urlSessionUploadTask = URLSession.shared.uploadTask(with: request, from: dataToUploadAsJSON, completionHandler: { (data, response, error) -> Void in
                         
-                        trace("in uploadData, finished task", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
+                        trace("    finished upload", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
                         
                         var dataAsString = "NO DATA RECEIVED"
                         if let data = data {
@@ -890,24 +893,25 @@ public class NightScoutUploadManager: NSObject {
                             
                         }
                         
-                        // if ends without success then log the data
-                        var success = false
+                        // will contain result of nightscount sync
+                        var nightScoutResult = NightScoutResult.success(.withoutlocalchanges)
+                        
+                        // before leaving the function, call completionhandler with result
+                        // also trace either debug or error, depending on result
                         defer {
-                            if !success {
+                            if !nightScoutResult.successFull() {
                                 
                                 trace("    data received = %{public}@", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .error, dataAsString)
 
-                                completionHandler(nil, .failed)
-                                
                             } else {
                                 
                                 // add data received in debug level
                                 trace("    data received = %{public}@", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .debug, dataAsString)
                                 
-                                // successful case, call completionhandler
-                                completionHandler(data, .success)
-
                             }
+                            
+                            completionHandler(data, nightScoutResult)
+                            
                         }
                         
                         // error cases
@@ -937,9 +941,9 @@ public class NightScoutUploadManager: NSObject {
                                                     
                                                     if code == 66 {
                                                         
-                                                        trace("    in uploadData, found code = 66, considering the upload as successful", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .error)
+                                                        trace("    found code = 66, considering the upload as successful", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .error)
                                                         
-                                                        success = true
+                                                        nightScoutResult = NightScoutResult.success(.withoutlocalchanges)
                                                         
                                                         return
                                                         
@@ -967,17 +971,17 @@ public class NightScoutUploadManager: NSObject {
                         }
                         
                         // successful cases
-                        success = true
+                        nightScoutResult = NightScoutResult.success(.withoutlocalchanges)
                         
                     })
                     
-                    trace("in uploadData, calling task.resume", log: oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
-                    task.resume()
+                    trace("    calling urlSessionUploadTask.resume", log: oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
+                    urlSessionUploadTask.resume()
                     
                 } else {
                     
                     // case where url is nil, which should normally not happen
-                    completionHandler(nil, .failed)
+                    completionHandler(nil, NightScoutResult.failed)
                     
                 }
                 
@@ -986,7 +990,7 @@ public class NightScoutUploadManager: NSObject {
             } else {
                 
                 // case where nightScoutUrl is nil, which should normally not happen because nightScoutUrl was checked before calling this function
-                completionHandler(nil, .failed)
+                completionHandler(nil, NightScoutResult.failed)
                 
             }
             
@@ -1074,25 +1078,82 @@ public class NightScoutUploadManager: NSObject {
         
     }
     
-    /// Verifies for non-uploaded treatmentEntries, if there is a matching value in treatmentNSResponses and if yes reads the the id from the treatmentNSResponse and stores in the treatmentEntry
+    /// Verifies for each treatmentEntriy, that is already uploaded, if any of the attributes has different values and if yes updates the TreatmentEntry locally
+    /// - parameters:
+    ///     - forTreatmentEntries : treatmentEntries to check if they have new values
+    ///     - inTreatmentNSResponses : responses downloaded from NS, in which to search for the treatmentEntries
+    /// - returns:amount of locally updated treatmentEntries
+    ///
+    /// - !! does not save to coredata
+    private func checkIfChangedAtNS(forTreatmentEntries treatmentEntries: [TreatmentEntry], inTreatmentNSResponses treatmentNSResponses: [TreatmentNSResponse]) -> Int {
+        
+        // used to trace how many new treatmenEntries are locally updated
+        var amountOfUpdatedTreatmentEntries = 0
+        
+        // iterate through treatmentEntries
+        for treatmentEntry in treatmentEntries {
+            
+            // only handle treatmentEntries that are already uploaded
+            if treatmentEntry.uploaded && treatmentEntry.id != TreatmentEntry.EmptyId {
+                
+                for treatmentNSResponse in treatmentNSResponses {
+                    
+                    // iterate through treatmentEntries
+                    // find matching id
+                    if treatmentNSResponse.id == treatmentEntry.id {
+                        
+                        var treatmentUpdated = false
+                        
+                        // check value, type and date. If NS has any difference, then update locally
+                        
+                        if treatmentNSResponse.value != treatmentEntry.value {
+                            treatmentUpdated = true
+                            treatmentEntry.value = treatmentNSResponse.value
+                        }
+                        
+                        if treatmentNSResponse.eventType != treatmentEntry.treatmentType {
+                            treatmentUpdated = true
+                            treatmentEntry.treatmentType = treatmentNSResponse.eventType
+                        }
+                        
+                        if treatmentNSResponse.createdAt != treatmentEntry.date {
+                            treatmentUpdated = true
+                            treatmentEntry.date = treatmentNSResponse.createdAt
+                        }
+                        
+                        if treatmentUpdated {
+                            amountOfUpdatedTreatmentEntries = amountOfUpdatedTreatmentEntries + 1
+                        }
+                        
+                        break
+                        
+                    }
+                    
+                }
+                
+            }
+            
+        }
+        
+        return amountOfUpdatedTreatmentEntries
+        
+    }
+
+    /// Verifies for each treatmentEntriy, if not yet uploaded and if empty id, then  if there is a matching  treatmentNSResponses and if yes reads the id (for new treatmentEntries) from the treatmentNSResponse and stores in the treatmentEntry
     /// - parameters:
     ///     - forTreatmentEntries : treatmentEntries to check if they are uploaded
     ///     - inTreatmentNSResponses : responses downloaded from NS, in which to search for the treatmentEntries
-    /// - returns:amount of treatmentEntries found, and marked as uploaded
+    /// - returns:amount of new  treatmentEntries found
     ///
-    /// - iterates through entries and treatmentNSResponses. For entries that have no id, iterate through treatmentNSResponses to find a matching entry based on date, value and treatmenttype. If match found then set the id value in the entry
     /// - !! does not save to coredata
     private func checkIfUploaded(forTreatmentEntries treatmentEntries: [TreatmentEntry], inTreatmentNSResponses treatmentNSResponses: [TreatmentNSResponse]) -> Int {
         
-        // return value
-        var amount = 0
-        
-        // used to trace how many treatmenEntries are updated
-        var amountOfUpdatedTreatmentEntries = 0
+        // used to trace how many new treatmenEntries are created
+        var amountOfNewTreatmentEntries = 0
         
         for treatmentEntry in treatmentEntries {
             
-            if !treatmentEntry.uploaded {
+            if !treatmentEntry.uploaded && treatmentEntry.id == TreatmentEntry.EmptyId {
                 
                 for treatmentNSResponse in treatmentNSResponses {
                     
@@ -1104,9 +1165,7 @@ public class NightScoutUploadManager: NSObject {
                         // Sets the id
                         treatmentEntry.id = treatmentNSResponse.id
                         
-                        amountOfUpdatedTreatmentEntries = amountOfUpdatedTreatmentEntries + 1
-                        
-                        amount = amount + 1
+                        amountOfNewTreatmentEntries = amountOfNewTreatmentEntries + 1
                         
                         break
                         
@@ -1115,30 +1174,38 @@ public class NightScoutUploadManager: NSObject {
                 }
                 
             }
+            
         }
         
-        return amount
+        return amountOfNewTreatmentEntries
         
     }
     
-    /// filters on treatments that are net yet known, and for those creates array of TreatmentEntry
+    /// filters on treatments that are net yet known, and for those creates a TreatMentEntry
+    /// - parameters:
+    ///     - treatmentNSResponses : array of TreatmentNSResponse
+    /// - returns: number of newly created TreatmentEntry's
     ///
     /// !! new treatments are stored in coredata after calling this function - no saveChanges to coredata is done here in this function
-    private func newTreatmentsIfRequired(treatmentNSResponses: [TreatmentNSResponse]) -> [TreatmentEntry] {
-        
-        var newTreatments: [TreatmentEntry] = []
+    private func newTreatmentsIfRequired(treatmentNSResponses: [TreatmentNSResponse]) -> Int {
+
+        // returnvalue
+        var numberOfNewTreatments = 0
         
         for treatmentNSResponse in treatmentNSResponses {
             
-            if !self.treatmentEntryAccessor.existsTreatmentWithId(treatmentNSResponse.id), let treatment = treatmentNSResponse.asNewTreatmentEntry(nsManagedObjectContext: coreDataManager.mainManagedObjectContext) {
-                
-                newTreatments.append(treatment)
-                
+            if !self.treatmentEntryAccessor.existsTreatmentWithId(treatmentNSResponse.id) {
+             
+                if treatmentNSResponse.asNewTreatmentEntry(nsManagedObjectContext: coreDataManager.mainManagedObjectContext) != nil {
+                    
+                    numberOfNewTreatments = numberOfNewTreatments + 1
+                    
+                }
+
             }
-            
         }
         
-        return newTreatments
+        return numberOfNewTreatments
         
     }
     
@@ -1147,20 +1214,68 @@ public class NightScoutUploadManager: NSObject {
 // MARK: - enum's
 
 /// nightscout result
-enum NightScoutResult: Equatable {
+fileprivate enum NightScoutResult: Equatable {
     
-    case success
+    case success(NightScoutUploadDetails)
     
     case failed
     
     func description() -> String {
         switch self {
             
-        case .success:
-            return "success"
+        case .success(let nightScoutUploadDetails):
+            
+            switch nightScoutUploadDetails {
+            case .unknown:
+                return "success"
+            case .withoutlocalchanges:
+                return "success with local changes"
+            case .withlocalchanges:
+                return "success without local changes"
+            }
             
         case .failed:
             return "failed"
+            
+        }
+        
+    }
+    
+    /// returns result as bool, allows to check if successful or not without looking at details
+    func successFull() -> Bool {
+        switch self {
+        case .success(_):
+            return true
+        case .failed:
+            return false
+        }
+    }
+    
+}
+
+/// used as subcase for NightScoutResult,
+fileprivate enum NightScoutUploadDetails: Equatable {
+    
+    /// no treatments downloaded that required local creation of a new TreatmentEntry or update of an existing TreatmentEntry
+    case withoutlocalchanges
+    
+    /// treatments downloaded that required local creation of a new TreatmentEntry or update of an existing TreatmentEntry
+    case withlocalchanges
+    
+    /// unknown if treatments were downloaded or updated
+    case unknown
+    
+    func description() -> String {
+        switch self {
+            
+        case .unknown:
+            return "unknowniflocalchanges"
+            
+        case .withoutlocalchanges:
+            return "withoutlocalchanges"
+            
+        case .withlocalchanges:
+            return "withlocalchanges"
             
         }
         
