@@ -244,7 +244,7 @@ public class NightScoutUploadManager: NSObject {
                             DispatchQueue.main.async {
                                 
                                 if treatmentsLocallyCreatedOrUpdated {
-                                    UserDefaults.standard.nightScoutTreatmentsUpdateCounter = UserDefaults.standard.nightScoutTreatmentsUpdateCounter
+                                    UserDefaults.standard.nightScoutTreatmentsUpdateCounter = UserDefaults.standard.nightScoutTreatmentsUpdateCounter + 1
                                 }
                                 
                                 // ***********************
