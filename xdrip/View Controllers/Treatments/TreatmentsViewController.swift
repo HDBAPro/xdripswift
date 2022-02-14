@@ -104,6 +104,27 @@ class TreatmentsViewController : UIViewController {
 		self.tableView.reloadData()
         
 	}
+    
+    // MARK: - overriden functions
+
+    /// when one of the observed settings get changed, possible actions to take
+    override public func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
+        
+        if let keyPath = keyPath {
+            if let keyPathEnum = UserDefaults.Key(rawValue: keyPath) {
+                
+                switch keyPathEnum {
+                case UserDefaults.Key.nightScoutTreatmentsUpdateCounter :
+                    // Reloads data and table.
+                    self.reload()
+                    
+                default:
+                    break
+                }
+            }
+        }
+    }
+
 }
 
 

@@ -170,6 +170,9 @@ public class NightScoutUploadManager: NSObject {
             
         }
         
+        /// to keep track if one of the downloads resulted in creation or update of treatments
+        var treatmentsLocallyCreatedOrUpdated = false
+        
         // get the latest treatments from the last maxTreatmentsDaysToUpload days
         // filter by uploaded = false
         // this gives treatments that are not yet uploaded to NS and treatments that are already updated but were updated in xDrip4iOS and need be updated @ NS
@@ -186,7 +189,7 @@ public class NightScoutUploadManager: NSObject {
         uploadTreatmentsToNightScout(treatmentsToUpload: treatmentsToUploadOrUpdate.filter { treatment in return treatment.id == TreatmentEntry.EmptyId}) {nightScoutResult in
 
             trace("    result = %{public}@", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, nightScoutResult.description())
-
+            
             // possibly not running on main thread here
             DispatchQueue.main.async {
 
@@ -235,7 +238,14 @@ public class NightScoutUploadManager: NSObject {
                             
                             trace("    result = %{public}@", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, nightScoutResult.description())
                             
+                            // if there's treatments created or updated, then set treatmentsLocallyCreatedOrUpdated to true
+                            treatmentsLocallyCreatedOrUpdated = nightScoutResult.amountOfNewOrUpdatedTreatments() > 0
+                            
                             DispatchQueue.main.async {
+                                
+                                if treatmentsLocallyCreatedOrUpdated {
+                                    UserDefaults.standard.nightScoutTreatmentsUpdateCounter = UserDefaults.standard.nightScoutTreatmentsUpdateCounter
+                                }
                                 
                                 // ***********************
                                 // next step in the sync process
@@ -531,7 +541,7 @@ public class NightScoutUploadManager: NSObject {
             
 			trace("    no treatments to upload", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info)
             
-            completionHandler(NightScoutResult.success(.withoutlocalchanges))
+            completionHandler(NightScoutResult.success(0))
             
 			return
             
@@ -575,7 +585,8 @@ public class NightScoutUploadManager: NSObject {
 
 						self.coreDataManager.saveChanges()
                         
-                        completionHandler(NightScoutResult.success(.withoutlocalchanges))
+                        // there's no treatmententries locally created or changed, so the amount in the result is 0
+                        completionHandler(NightScoutResult.success(0))
                         
 					}
 					
@@ -686,15 +697,6 @@ public class NightScoutUploadManager: NSObject {
                         
                         trace("    %{public}@ treatments downloaded", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .info, treatmentNSResponses.count.description)
                         
-                        // if there's nothing in treatmentNSResponses, then no need for further processing
-                        guard treatmentNSResponses.count > 0 else {
-                            
-                            completionHandler(NightScoutResult.success(.withoutlocalchanges))
-                            
-                            return
-                            
-                        }
-                        
                         // newTreatmentsIfRequired will iterate through downloaded treatments and if any in it is not yet known then create an instance of TreatmentEntry for each new one
                         // amountOfNewTreatments is the amount of new TreatmentEntries, just for tracing
                         let amountOfNewTreatments  = self.newTreatmentsIfRequired(treatmentNSResponses: treatmentNSResponses)
@@ -709,7 +711,7 @@ public class NightScoutUploadManager: NSObject {
                         self.coreDataManager.saveChanges()
                         
                         // call completion handler with success, if amount and/or amountOfNewTreatments > 0 then it's success withlocalchanges
-                        completionHandler(amount + amountOfNewTreatments > 0 ? NightScoutResult.success(.withlocalchanges) : NightScoutResult.success(.withoutlocalchanges))
+                        completionHandler(.success(amount + amountOfNewTreatments))
                         
                     }
 
@@ -894,7 +896,7 @@ public class NightScoutUploadManager: NSObject {
                         }
                         
                         // will contain result of nightscount sync
-                        var nightScoutResult = NightScoutResult.success(.withoutlocalchanges)
+                        var nightScoutResult = NightScoutResult.success(0)
                         
                         // before leaving the function, call completionhandler with result
                         // also trace either debug or error, depending on result
@@ -943,7 +945,7 @@ public class NightScoutUploadManager: NSObject {
                                                         
                                                         trace("    found code = 66, considering the upload as successful", log: self.oslog, category: ConstantsLog.categoryNightScoutUploadManager, type: .error)
                                                         
-                                                        nightScoutResult = NightScoutResult.success(.withoutlocalchanges)
+                                                        nightScoutResult = NightScoutResult.success(0)
                                                         
                                                         return
                                                         
@@ -971,7 +973,7 @@ public class NightScoutUploadManager: NSObject {
                         }
                         
                         // successful cases
-                        nightScoutResult = NightScoutResult.success(.withoutlocalchanges)
+                        nightScoutResult = NightScoutResult.success(0)
                         
                     })
                     
@@ -1216,23 +1218,17 @@ public class NightScoutUploadManager: NSObject {
 /// nightscout result
 fileprivate enum NightScoutResult: Equatable {
     
-    case success(NightScoutUploadDetails)
+    /// successful up or download with NS, with amount of locally updated or downloaded treatments
+    case success(Int)
     
+    /// failed up or download with NS
     case failed
     
     func description() -> String {
         switch self {
             
-        case .success(let nightScoutUploadDetails):
-            
-            switch nightScoutUploadDetails {
-            case .unknown:
-                return "success"
-            case .withoutlocalchanges:
-                return "success with local changes"
-            case .withlocalchanges:
-                return "success without local changes"
-            }
+        case .success(let amount):
+            return "success - \(amount) treatment entries locally stored or updated"
             
         case .failed:
             return "failed"
@@ -1251,32 +1247,15 @@ fileprivate enum NightScoutResult: Equatable {
         }
     }
     
-}
-
-/// used as subcase for NightScoutResult,
-fileprivate enum NightScoutUploadDetails: Equatable {
-    
-    /// no treatments downloaded that required local creation of a new TreatmentEntry or update of an existing TreatmentEntry
-    case withoutlocalchanges
-    
-    /// treatments downloaded that required local creation of a new TreatmentEntry or update of an existing TreatmentEntry
-    case withlocalchanges
-    
-    /// unknown if treatments were downloaded or updated
-    case unknown
-    
-    func description() -> String {
+    func amountOfNewOrUpdatedTreatments() -> Int {
+        
         switch self {
             
-        case .unknown:
-            return "unknowniflocalchanges"
+        case .failed:
+            return 0
             
-        case .withoutlocalchanges:
-            return "withoutlocalchanges"
-            
-        case .withlocalchanges:
-            return "withlocalchanges"
-            
+        case .success(let amount):
+            return amount
         }
         
     }

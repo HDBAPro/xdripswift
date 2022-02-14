@@ -258,6 +258,10 @@ final class RootViewController: UIViewController {
     /// constant for key in ApplicationManager.shared.addClosureToRunWhenAppWillEnterForeground - to dismiss screenLockAlertController
     private let applicationManagerKeyDismissScreenLockAlertController = "applicationManagerKeyDismissScreenLockAlertController"
     
+    /// constant for key in ApplicationManager.shared.addClosureToRunWhenAppWillEnterForeground - to do a NightScout Treatment sync
+    private let applicationManagerKeyStartNightScoutTreatmentSync = "applicationManagerKeyStartNightScoutTreatmentSync"
+
+    
     // MARK: - Properties - other private properties
     
     /// for logging
@@ -582,6 +586,9 @@ final class RootViewController: UIViewController {
                 
             }
             
+            // launch Nightscout sync
+            UserDefaults.standard.nightScoutSyncTreatmentsRequired = true
+            
         })
         
         // Setup View
@@ -681,6 +688,11 @@ final class RootViewController: UIViewController {
 
             self.dismissScreenLockAlertController()
             
+        })
+        
+        // launch nightscout treatment sync whenever the app comes to the foreground
+        ApplicationManager.shared.addClosureToRunWhenAppWillEnterForeground(key: applicationManagerKeyStartNightScoutTreatmentSync, closure: {
+            UserDefaults.standard.nightScoutSyncTreatmentsRequired = true
         })
         
     }

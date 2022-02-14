@@ -191,7 +191,6 @@ class TreatmentsInsertViewController : UIViewController {
         
 	}
 	
-	
 	// MARK: - private functions
 	
 	private func addDoneButtonOnNumpad(textField: UITextField) {
