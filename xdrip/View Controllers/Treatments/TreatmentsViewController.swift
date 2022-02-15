@@ -51,6 +51,11 @@ class TreatmentsViewController : UIViewController {
 		
 		self.titleNavigation.title = Texts_TreatmentsView.treatmentsTitle
         
+        // add observer for nightScoutTreatmentsUpdateCounter, to reload the screen whenever the value changes
+        UserDefaults.standard.addObserver(self, forKeyPath: UserDefaults.Key.nightScoutTreatmentsUpdateCounter.rawValue, options: .new, context: nil)
+        
+
+        
 	}
 	
 
@@ -68,14 +73,11 @@ class TreatmentsViewController : UIViewController {
 
 			fatalError("In TreatmentsInsertViewController, prepare for segue, viewcontroller is not TreatmentsInsertViewController" )
 		}
-		
-		// Handler that will be called when entries are created.
-		let completionHandler = {
-			self.reload()
-		}
-		
+
 		// Configure insertViewController with CoreData instance and complete handler.
-        insertViewController.configure(treatMentEntryToUpdate: sender as? TreatmentEntry, coreDataManager: coreDataManager, completionHandler: completionHandler)
+        insertViewController.configure(treatMentEntryToUpdate: sender as? TreatmentEntry, coreDataManager: coreDataManager, completionHandler: {
+            self.reload()
+        })
         
 	}
 	
@@ -114,6 +116,7 @@ class TreatmentsViewController : UIViewController {
             if let keyPathEnum = UserDefaults.Key(rawValue: keyPath) {
                 
                 switch keyPathEnum {
+                    
                 case UserDefaults.Key.nightScoutTreatmentsUpdateCounter :
                     // Reloads data and table.
                     self.reload()
